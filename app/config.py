@@ -1,14 +1,12 @@
 #¿Qué es? Clase que encapsula la carga de variables desde el archivo .env hacia el objeto de configuración nativo de Flask.
 import os
-from dotenv import load_dotenv
-
-# Cargar el archivo .env ubicado en la raíz
-load_dotenv()
 
 class Config:
-    SECRET_KEY = os.getenv("SECRET_KEY", "dev_fallback_key")
-    MONGO_URI = os.getenv("MONGO_URI")
-    MONGO_DB_NAME = os.getenv("MONGO_DB_NAME")
-    REDIS_HOST = os.getenv("REDIS_HOST")
-    REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
-    REDIS_DB = int(os.getenv("REDIS_DB", 0))
+    SECRET_KEY = os.environ.get("SECRET_KEY", "llave_secreta_desarrollo")
+    
+    # Configuración de MongoDB
+    MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/sistema_preventas")
+    
+    # Configuración de Redis
+    REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
+    REDIS_PORT = int(os.environ.get("REDIS_PORT", 6380))

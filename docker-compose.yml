@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # 1. Servicio de la Aplicación Web (Flask)
+  web:
+    build: .
+    container_name: web-preventas
+    ports:
+      - "5000:5000"
+    environment:
+      - MONGO_URI=mongodb://mongo-preventas:27017/sistema_preventas
+      - REDIS_HOST=redis-preventas
+      - REDIS_PORT=6379
+    depends_on:
+      - mongo
+      - redis
+    restart: always
+
+  # 2. Servicio de Base de Datos Documental (MongoDB)
+  mongo:
+    image: mongo:latest
+    container_name: mongo-preventas
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: always
+
+  # 3. Servicio de Caché In-Memory (Redis)
+  redis:
+    image: redis:latest
+    container_name: redis-preventas
+    ports:
+      - "6379:6379"
+    restart: always
+
+  # 4. Servicio de Interfaz Gráfica para MongoDB (Mongo Express)
+  mongo-express:
+    image: mongo-express:latest
+    container_name: mongo-express-preventas
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_SERVER=mongo
+      - ME_CONFIG_BASICAUTH_USERNAME=admin
+      - ME_CONFIG_BASICAUTH_PASSWORD=pass
+    depends_on:
+      - mongo
+    restart: always
+
+volumes:
+  mongo_data:
