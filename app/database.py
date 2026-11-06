@@ -1,5 +1,5 @@
+import pymongo
 import redis
-from pymongo import MongoClient
 
 class Database:
     mongo_client = None
@@ -8,23 +8,25 @@ class Database:
 
     @classmethod
     def init_app(cls, app):
-        """Inicializa los clientes de base de datos usando la configuración de Flask."""
-        # Conexión a MongoDB (Driver Oficial PyMongo)
-        cls.mongo_client = MongoClient(app.config["MONGO_URI"])
-        cls.mongo_db = cls.mongo_client[app.config["MONGO_DB_NAME"]]
+        # 1. Conexión a MongoDB Engine
+        mongo_uri = app.config.get("MONGO_URI", "mongodb://localhost:27017/sistema_preventas")
+        db_name = app.config.get("MONGO_DB_NAME", "sistema_preventas")
+        
+        cls.mongo_client = pymongo.MongoClient(mongo_uri)
+        cls.mongo_db = cls.mongo_client[db_name]
 
-        # Conexión a Redis (Driver Oficial Redis-Py)
+        # 2. Conexión a Redis In-Memory Engine
+        redis_host = app.config.get("REDIS_HOST", "localhost")
+        redis_port = app.config.get("REDIS_PORT", 6380)
+        
         cls.redis_client = redis.Redis(
-            host=app.config["REDIS_HOST"],
-            port=app.config["REDIS_PORT"],
-            db=app.config["REDIS_DB"],
-            decode_responses=True # Convierte las respuestas binarias de Redis a cadenas str de Python
+            host=redis_host, 
+            port=redis_port, 
+            decode_responses=True
         )
 
 def get_mongo_db():
-    """Retorna la instancia de la base de datos de MongoDB."""
     return Database.mongo_db
 
 def get_redis_client():
-    """Retorna la instancia del cliente de Redis."""
     return Database.redis_client

@@ -1,25 +1,50 @@
-**/.classpath
-**/.dockerignore
+# ------------------------------------------------------------------------------
+# ENTORNO VIRTUAL Y CACHÉ DE PYTHON (CRÍTICO PARA DOCKER)
+# ------------------------------------------------------------------------------
+venv/
+env/
+ENV/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ------------------------------------------------------------------------------
+# CONFIGURACIONES Y SECRETOS LOCALES
+# ------------------------------------------------------------------------------
 **/.env
+.env.*
+**/secrets.dev.yaml
+**/values.dev.yaml
+
+# ------------------------------------------------------------------------------
+# CONTROL DE VERSIONES Y HERRAMIENTAS DE IDE
+# ------------------------------------------------------------------------------
 **/.git
 **/.gitignore
+**/.dockerignore
+**/.vscode
+**/.vs
+**/.idea
+**/.classpath
 **/.project
 **/.settings
 **/.toolstarget
-**/.vs
-**/.vscode
+
+# ------------------------------------------------------------------------------
+# INFRAESTRUCTURA DE DOCKER Y ARCHIVOS TEMPORALES
+# ------------------------------------------------------------------------------
+**/Dockerfile*
+**/docker-compose*
+**/compose*
+**/node_modules
+**/npm-debug.log
+**/bin
+**/obj
+**/charts
 **/*.*proj.user
 **/*.dbmdl
 **/*.jfm
-**/bin
-**/charts
-**/docker-compose*
-**/compose*
-**/Dockerfile*
-**/node_modules
-**/npm-debug.log
-**/obj
-**/secrets.dev.yaml
-**/values.dev.yaml
 LICENSE
 README.md
