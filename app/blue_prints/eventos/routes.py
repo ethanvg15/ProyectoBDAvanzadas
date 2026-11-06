@@ -43,3 +43,23 @@ def cargar_inicial():
 
     # Renderizar la plantilla gráfica para la carga
     return render_template("eventos/cargar.html")
+@eventos_bp.route("/catalogo", methods=["GET"])
+def ver_catalogo():
+    """
+    Rubro 2: Consulta del catálogo de eventos en MongoDB con filtrado dinámico.
+    """
+    db = get_mongo_db()
+    categoria_filtro = request.args.get("categoria", "")
+
+    # Construcción dinámica del query
+    query = {}
+    if categoria_filtro:
+        query["categoria"] = categoria_filtro
+
+    # Consulta a la colección 'eventos' omitiendo el ID nativo de ObjectId para simplificar
+    eventos = list(db.eventos.find(query))
+
+    # Obtener categorías únicas para poblar el menú desplegable del filtro
+    categorias = db.eventos.distinct("categoria")
+
+    return render_template("eventos/catalogo.html", eventos=eventos, categorias=categorias, categoria_seleccionada=categoria_filtro)
