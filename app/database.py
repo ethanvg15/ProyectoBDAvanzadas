@@ -17,7 +17,7 @@ class Database:
 
         # 2. Conexión a Redis In-Memory Engine
         redis_host = app.config.get("REDIS_HOST", "localhost")
-        redis_port = app.config.get("REDIS_PORT", 6380)
+        redis_port = app.config.get("REDIS_PORT", 6379)
         
         cls.redis_client = redis.Redis(
             host=redis_host, 

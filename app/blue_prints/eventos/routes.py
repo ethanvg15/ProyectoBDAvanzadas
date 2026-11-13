@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session
 from app.database import get_mongo_db, get_redis_client
+from bson.objectid import ObjectId
 import json
 import uuid
 eventos_bp = Blueprint("eventos", __name__)
@@ -61,25 +62,30 @@ def ver_catalogo():
         categorias=categorias, 
         categoria_seleccionada=categoria_filtro
     )
+
+
 @eventos_bp.route("/admin/preventa", methods=["GET", "POST"])
 def configurar_preventa():
-    """
-    Módulo Administrativo: Selecciona un evento del catálogo, define el precio
-    de preventa, la cantidad de entradas y la duración (TTL) en Redis.
-    """
     db = get_mongo_db()
     redis_client = get_redis_client()
 
     if request.method == "POST":
-        id_evento = request.form.get("id_evento")
+        id_seleccionado = request.form.get("id_evento", "").strip()
         precio_preventa = float(request.form.get("precio"))
         cantidad_entradas = int(request.form.get("cantidad"))
         duracion_segundos = int(request.form.get("duracion_segundos"))
 
-        # 1. Actualizar documento del evento en MongoDB
+        # Construir filtro flexible (soporta id_evento string/int o ObjectId _id)
+        filtros = [{"id_evento": id_seleccionado}]
+        if id_seleccionado.isdigit():
+            filtros.append({"id_evento": int(id_seleccionado)})
+        if ObjectId.is_valid(id_seleccionado):
+            filtros.append({"_id": ObjectId(id_seleccionado)})
+
         resultado = db.eventos.update_one(
-            {"id_evento": id_evento},
+            {"$or": filtros},
             {"$set": {
+                "id_evento": id_seleccionado,
                 "precio": precio_preventa,
                 "entradas_disponibles": cantidad_entradas,
                 "estado": "EN_PREVENTA"
@@ -87,16 +93,15 @@ def configurar_preventa():
         )
 
         if resultado.matched_count == 0:
-            flash("No se encontró el evento seleccionado en la base de datos.", "error")
+            flash(f"No se encontró el evento '{id_seleccionado}' en la base de datos.", "error")
             return redirect(request.url)
 
-        # 2. Registrar la ventana de preventa activa en Redis con expiración automática (TTL)
-        redis_client.setex(f"preventa_activa:{id_evento}", duracion_segundos, "ACTIVA")
+        # Registrar ventana de preventa activa en Redis con TTL
+        redis_client.setex(f"preventa_activa:{id_seleccionado}", duracion_segundos, "ACTIVA")
 
-        flash(f"Preventa activada por {duracion_segundos} segundos para el evento {id_evento}.", "success")
+        flash(f"Preventa activada por {duracion_segundos} segundos para el evento {id_seleccionado}.", "success")
         return redirect(url_for("eventos.ver_catalogo"))
 
-    # Consultar todos los eventos cargados para poblar el selector del formulario
     eventos = list(db.eventos.find({}))
     return render_template("admin/configurar_preventa.html", eventos=eventos)
 @eventos_bp.route("/reservar/<id_evento>", methods=["POST"])

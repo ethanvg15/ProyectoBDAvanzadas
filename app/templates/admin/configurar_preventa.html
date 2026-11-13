@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 
+{% block title %}Configurar Preventa{% endblock %}
+
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-7">
-        <div class="card shadow">
+        <div class="card shadow border-0">
             <div class="card-header bg-dark text-white fw-bold">
                 Configurar Preventa de Evento (Administrador)
             </div>
@@ -14,7 +16,7 @@
                         <select class="form-select" id="id_evento" name="id_evento" required>
                             <option value="" selected disabled>-- Elija un evento --</option>
                             {% for evento in eventos %}
-                                <option value="{{ evento.id_evento }}">
+                                <option value="{{ evento.id_evento or evento._id }}">
                                     {{ evento.nombre }} ({{ evento.categoria }}) - Actual: ${{ evento.precio }}
                                 </option>
                             {% endfor %}
@@ -34,7 +36,7 @@
                     <div class="mb-3">
                         <label for="duracion_segundos" class="form-label fw-bold">Duración de la Preventa (en segundos - TTL Redis)</label>
                         <input type="number" min="10" class="form-control" id="duracion_segundos" name="duracion_segundos" value="300" required>
-                        <div class="form-text">Ejemplo: 300 segundos = 5 minutos de preventa activa.</div>
+                        <div class="form-text">Ejemplo: 300 segundos = 5 minutos de preventa activa en memoria RAM.</div>
                     </div>
 
                     <button type="submit" class="btn btn-primary w-100 fw-bold">
