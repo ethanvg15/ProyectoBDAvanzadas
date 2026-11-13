@@ -1,7 +1,7 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash
-from app.database import get_mongo_db
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session
+from app.database import get_mongo_db, get_redis_client
 import json
-
+import uuid
 eventos_bp = Blueprint("eventos", __name__)
 
 @eventos_bp.route("/", methods=["GET"])
@@ -61,3 +61,148 @@ def ver_catalogo():
         categorias=categorias, 
         categoria_seleccionada=categoria_filtro
     )
+@eventos_bp.route("/admin/preventa", methods=["GET", "POST"])
+def configurar_preventa():
+    """
+    Módulo Administrativo: Selecciona un evento del catálogo, define el precio
+    de preventa, la cantidad de entradas y la duración (TTL) en Redis.
+    """
+    db = get_mongo_db()
+    redis_client = get_redis_client()
+
+    if request.method == "POST":
+        id_evento = request.form.get("id_evento")
+        precio_preventa = float(request.form.get("precio"))
+        cantidad_entradas = int(request.form.get("cantidad"))
+        duracion_segundos = int(request.form.get("duracion_segundos"))
+
+        # 1. Actualizar documento del evento en MongoDB
+        resultado = db.eventos.update_one(
+            {"id_evento": id_evento},
+            {"$set": {
+                "precio": precio_preventa,
+                "entradas_disponibles": cantidad_entradas,
+                "estado": "EN_PREVENTA"
+            }}
+        )
+
+        if resultado.matched_count == 0:
+            flash("No se encontró el evento seleccionado en la base de datos.", "error")
+            return redirect(request.url)
+
+        # 2. Registrar la ventana de preventa activa en Redis con expiración automática (TTL)
+        redis_client.setex(f"preventa_activa:{id_evento}", duracion_segundos, "ACTIVA")
+
+        flash(f"Preventa activada por {duracion_segundos} segundos para el evento {id_evento}.", "success")
+        return redirect(url_for("eventos.ver_catalogo"))
+
+    # Consultar todos los eventos cargados para poblar el selector del formulario
+    eventos = list(db.eventos.find({}))
+    return render_template("admin/configurar_preventa.html", eventos=eventos)
+@eventos_bp.route("/reservar/<id_evento>", methods=["POST"])
+def reservar_entrada(id_evento):
+    """
+    Fase 1 (Estado Activo / Bloqueo Temporal en Redis con TTL):
+    Verifica el inventario real descontando reservas activas en RAM y bloquea el cupo.
+    """
+    db = get_mongo_db()
+    redis_client = get_redis_client()
+
+    cantidad_solicitada = int(request.form.get("cantidad", 1))
+    if "cliente_id" not in session:
+        session["cliente_id"] = str(uuid.uuid4())[:8]
+    cliente_id = session["cliente_id"]
+
+    # 1. Validar que la preventa siga activa en Redis
+    if not redis_client.exists(f"preventa_activa:{id_evento}"):
+        flash("La ventana de preventa para este evento ha expirado o no está activa.", "error")
+        return redirect(url_for("eventos.ver_catalogo"))
+
+    # 2. Consultar inventario persistente en MongoDB
+    evento = db.eventos.find_one({"id_evento": id_evento})
+    if not evento:
+        flash("El evento seleccionado no existe.", "error")
+        return redirect(url_for("eventos.ver_catalogo"))
+
+    # 3. Calcular cupos retenidos en Redis por otros usuarios concurrentes
+    llaves_reservas = redis_client.keys(f"reserva:{id_evento}:*")
+    entradas_retenidas = sum(int(redis_client.get(k) or 0) for k in llaves_reservas)
+    disponibles_reales = int(evento.get("entradas_disponibles", 0)) - entradas_retenidas
+
+    if cantidad_solicitada > disponibles_reales:
+        flash(f"Cupo insuficiente. Solo quedan {disponibles_reales} entradas disponibles.", "error")
+        return redirect(url_for("eventos.ver_catalogo"))
+
+    # 4. Crear bloqueo temporal en Redis con TTL de 120 segundos
+    tiempo_ttl = 120
+    llave_usuario = f"reserva:{id_evento}:{cliente_id}"
+    redis_client.setex(llave_usuario, tiempo_ttl, cantidad_solicitada)
+
+    flash(f"Reserva temporal activada por {tiempo_ttl} segundos.", "success")
+    return redirect(url_for("eventos.checkout_reserva", id_evento=id_evento))
+
+
+@eventos_bp.route("/checkout/<id_evento>", methods=["GET"])
+def checkout_reserva(id_evento):
+    """Muestra la ventana de confirmación mientras el TTL de Redis esté vigente."""
+    db = get_mongo_db()
+    redis_client = get_redis_client()
+    cliente_id = session.get("cliente_id")
+
+    llave_usuario = f"reserva:{id_evento}:{cliente_id}"
+    ttl_restante = redis_client.ttl(llave_usuario)
+    cantidad_reservada = redis_client.get(llave_usuario)
+
+    if ttl_restante <= 0 or not cantidad_reservada:
+        flash("Transacción abortada: Tu reserva temporal expiró y los cupos fueron liberados.", "error")
+        return redirect(url_for("eventos.ver_catalogo"))
+
+    evento = db.eventos.find_one({"id_evento": id_evento})
+    return render_template(
+        "eventos/checkout.html",
+        evento=evento,
+        cantidad=int(cantidad_reservada),
+        ttl=ttl_restante
+    )
+
+
+@eventos_bp.route("/confirmar_compra/<id_evento>", methods=["POST"])
+def confirmar_compra(id_evento):
+    """
+    Fase 2 (Estado Committed / Persistencia en MongoDB):
+    Consolida la venta en disco y libera la llave temporal de Redis.
+    """
+    db = get_mongo_db()
+    redis_client = get_redis_client()
+    cliente_id = session.get("cliente_id")
+    llave_usuario = f"reserva:{id_evento}:{cliente_id}"
+
+    cantidad_str = redis_client.get(llave_usuario)
+    if not cantidad_str:
+        flash("Transacción abortada: El tiempo límite expiró antes de confirmar.", "error")
+        return redirect(url_for("eventos.ver_catalogo"))
+
+    cantidad_comprada = int(cantidad_str)
+    evento = db.eventos.find_one({"id_evento": id_evento})
+
+    # 1. Descontar inventario en MongoDB de forma atómica
+    db.eventos.update_one(
+        {"id_evento": id_evento},
+        {"$inc": {"entradas_disponibles": -cantidad_comprada}}
+    )
+
+    # 2. Registrar comprobante en la colección 'ventas' (Durabilidad)
+    db.ventas.insert_one({
+        "id_venta": str(uuid.uuid4())[:12],
+        "id_evento": id_evento,
+        "nombre_evento": evento.get("nombre"),
+        "cliente_id": cliente_id,
+        "cantidad": cantidad_comprada,
+        "total_pagado": cantidad_comprada * float(evento.get("precio", 0))
+    })
+
+    # 3. Liberar el bloqueo en Redis
+    redis_client.delete(llave_usuario)
+
+    flash("¡Compra confirmada (Committed) exitosamente!", "success")
+    return redirect(url_for("eventos.ver_catalogo"))
