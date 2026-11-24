@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Abrir Preventa{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-7">
+        <div class="card shadow border-0">
+            <div class="card-header bg-dark text-white fw-bold">
+                Abrir Preventa (Administrador)
+            </div>
+            <div class="card-body p-4">
+                {% if eventos %}
+                <form method="POST" action="{{ url_for('preventas.abrir_preventa') }}">
+                    <div class="mb-3">
+                        <label for="evento" class="form-label fw-bold">Evento del catálogo</label>
+                        <select class="form-select" id="evento" name="evento" required>
+                            <option value="" selected disabled>-- Elija un evento --</option>
+                            {% for e in eventos %}
+                                <option value="{{ e._id }}">{{ e.nombre }} ({{ e.categoria }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="entradas" class="form-label fw-bold">Entradas disponibles en preventa</label>
+                        <input type="number" class="form-control" id="entradas" name="entradas"
+                               min="1" step="1" placeholder="Ej. 5" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="minutos" class="form-label fw-bold">Duración de la preventa (minutos)</label>
+                        <input type="number" class="form-control" id="minutos" name="minutos"
+                               min="1" step="1" placeholder="Ej. 30" required>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100 fw-bold">Abrir preventa</button>
+                </form>
+                {% else %}
+                    <div class="alert alert-warning mb-0">
+                        El catálogo está vacío. Primero cargue el archivo de eventos en
+                        <a href="{{ url_for('eventos.cargar_inicial') }}">Carga Inicial</a>.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
