@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Catálogo de Eventos{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h2 class="fw-bold mb-3">Catálogo de Eventos Disponibles</h2>
+        
+        <!-- Formulario de Filtrado -->
+        <form method="GET" action="{{ url_for('eventos.ver_catalogo') }}" class="row g-3 align-items-center">
+            <div class="col-auto">
+                <label for="categoria" class="col-form-label fw-bold">Filtrar por Categoría:</label>
+            </div>
+            <div class="col-auto">
+                <select name="categoria" id="categoria" class="form-select">
+                    <option value="">-- Todas las Categorías --</option>
+                    {% for cat in categorias %}
+                        <option value="{{ cat }}" {% if cat == categoria_seleccionada %}selected{% endif %}>{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary">Aplicar Filtro</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Listado de Eventos en Tarjetas Responsivas -->
+<div class="row">
+    {% for evento in eventos %}
+        <div class="col-md-4 mb-4">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card-body d-flex flex-column">
+                    <div class="mb-2">
+                        <span class="badge bg-secondary float-end">{{ evento.categoria }}</span>
+                        <h5 class="card-title fw-bold text-primary">{{ evento.nombre }}</h5>
+                    </div>
+                    <p class="card-text text-muted mb-2">ID Evento: <code>{{ evento.id_evento }}</code></p>
+                    <p class="card-text fw-bold">Precio Base: ${{ evento.precio }}</p>
+
+                    <!-- Atributos dinámicos del esquema flexible -->
+                    <ul class="list-unstyled text-small bg-light p-2 rounded">
+                        {% for clave, valor in evento.items() %}
+                            {% if clave not in ['_id', 'id_evento', 'nombre', 'categoria', 'precio'] %}
+                                <li><strong>{{ clave|capitalize }}:</strong> {{ valor }}</li>
+                            {% endif %}
+                        {% endfor %}
+                    </ul>
+
+                    <!-- Formulario de reserva (Rubro 3 - TTL en Redis) -->
+                    {% set cupos = evento.entradas_disponibles|default(0)|int %}
+                    <form action="{{ url_for('eventos.reservar_entrada', id_evento=evento.id_evento) }}" method="POST" class="mt-auto pt-3">
+                        <div class="input-group">
+                            <input type="number" name="cantidad" class="form-control" value="1" min="1"
+                                   max="{{ cupos if cupos > 0 else 1 }}" required>
+                            <button type="submit" class="btn btn-primary"
+                                    {% if cupos <= 0 %}disabled{% endif %}>
+                                Reservar (TTL)
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    {% else %}
+        <div class="col-12">
+            <div class="alert alert-warning text-center">
+                No hay eventos disponibles en este momento. Cargue eventos desde el panel de Administración.
+            </div>
+        </div>
+    {% endfor %}
+</div>
+{% endblock %}
