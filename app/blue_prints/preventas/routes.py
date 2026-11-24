@@ -1,63 +1,92 @@
+from bson.errors import InvalidId
+from bson.objectid import ObjectId
 from flask import Blueprint, render_template, request, redirect, url_for, flash
-from app.database import get_redis_client, get_mongo_db
+from app.database import get_mongo_db, get_redis_client
+from app.utils import id_de_evento
+from app.preventas_servicio import listar_preventas_abiertas
 
 preventas_bp = Blueprint("preventas", __name__)
 
+
+def clave_preventa(id_evento):
+    """Nombre de la llave en Redis. Ejemplo: preventa:E001"""
+    return f"preventa:{id_evento}"
+
+
 @preventas_bp.route("/abrir", methods=["GET", "POST"])
 def abrir_preventa():
-    db_mongo = get_mongo_db()
-    r_redis = get_redis_client()
+    """
+    Funcionalidad 2: abrir la preventa de un evento.
+    - El evento se elige del catálogo (MongoDB). El catálogo no se modifica.
+    - La preventa vive solo en Redis: la llave guarda las entradas disponibles
+      y su vencimiento lo controla el TTL de Redis (la duración llega en minutos).
+    - No se permite abrir una preventa si el evento ya tiene una abierta.
+    """
+    db = get_mongo_db()
+    r = get_redis_client()
 
     if request.method == "POST":
-        id_evento = request.form.get("id_evento")
-        entradas = int(request.form.get("entradas", 0))
-        duracion_minutos = int(request.form.get("duracion_minutos", 0))
+        # 1. Validar los datos del formulario
+        try:
+            entradas = int(request.form.get("entradas", ""))
+            minutos = int(request.form.get("minutos", ""))
+        except ValueError:
+            flash("La cantidad de entradas y la duración deben ser números enteros.", "error")
+            return redirect(url_for("preventas.abrir_preventa"))
 
-        key_redis = f"preventa:{id_evento}"
+        if entradas < 1 or minutos < 1:
+            flash("La cantidad de entradas y la duración deben ser mayores que cero.", "error")
+            return redirect(url_for("preventas.abrir_preventa"))
 
-        # Validar si ya existe una preventa activa para el mismo evento en Redis
-        if r_redis.exists(key_redis):
-            flash("El evento ya cuenta con una preventa activa.", "error")
-            return redirect(request.url)
+        # 2. Buscar el evento en el catálogo (MongoDB)
+        try:
+            evento = db.eventos.find_one({"_id": ObjectId(request.form.get("evento", ""))})
+        except InvalidId:
+            evento = None
+        if evento is None:
+            flash("Debe seleccionar un evento válido del catálogo.", "error")
+            return redirect(url_for("preventas.abrir_preventa"))
 
-        # Convertir minutos a segundos para el TTL de Redis
-        ttl_segundos = duracion_minutos * 60
+        id_evento = id_de_evento(evento)
+        llave = clave_preventa(id_evento)
+        segundos = minutos * 60
 
-        # Guardar en Redis mediante Hash o Estructura dedicada
-        # Se establece la llave con el TTL correspondiente
-        r_redis.hset(key_redis, mapping={"entradas_disponibles": entradas, "id_evento": id_evento})
-        r_redis.expire(key_redis, ttl_segundos)
+        # 3. Crear la preventa en Redis con su TTL en UNA sola operación atómica.
+        #    nx=True -> solo se crea si la llave NO existe (evita duplicar la preventa).
+        creada = r.set(llave, entradas, nx=True, ex=segundos)
 
-        flash("Preventa abierta y registrada en Redis con éxito.", "success")
-        return redirect(url_for("preventas.preventas_activas"))
+        # Una preventa con 0 entradas ya está agotada (cerrada): se puede reabrir.
+        if not creada:
+            actuales = r.get(llave)
+            if actuales is not None and int(actuales) <= 0:
+                r.delete(llave)
+                creada = r.set(llave, entradas, nx=True, ex=segundos)
 
-    # Obtener catálogo de MongoDB para el selector del formulario
-    eventos = list(db_mongo.eventos.find({}))
+        if not creada:
+            flash(f"El evento «{evento.get('nombre')}» ya tiene una preventa abierta.", "error")
+            return redirect(url_for("preventas.abrir_preventa"))
+
+        flash(
+            f"Preventa abierta: «{evento.get('nombre')}» con {entradas} entradas "
+            f"disponibles durante {minutos} minuto(s).",
+            "success",
+        )
+        return redirect(url_for("preventas.abrir_preventa"))
+
+    # GET: mostrar el formulario con los eventos del catálogo
+    eventos = [
+        {"_id": str(e["_id"]), "nombre": e.get("nombre", "(sin nombre)"), "categoria": e.get("categoria", "")}
+        for e in db.eventos.find({})
+    ]
     return render_template("preventas/abrir.html", eventos=eventos)
 
 
 @preventas_bp.route("/activas", methods=["GET"])
 def preventas_activas():
-    r_redis = get_redis_client()
-    db_mongo = get_mongo_db()
-
-    # Buscar todas las llaves que coincidan con el patrón preventa:*
-    keys = r_redis.keys("preventa:*")
-    preventas = []
-
-    for key in keys:
-        datos = r_redis.hgetall(key)
-        ttl_restante = r_redis.ttl(key) # Obtener TTL en segundos
-        
-        # Consultar detalles del evento en MongoDB
-        evento = db_mongo.eventos.find_one({"id_evento": datos.get("id_evento")})
-        
-        if evento:
-            preventas.append({
-                "nombre_evento": evento.get("nombre"),
-                "categoria": evento.get("categoria"),
-                "entradas_disponibles": datos.get("entradas_disponibles"),
-                "minutos_restantes": round(ttl_restante / 60, 2)
-            })
-
+    """
+    Funcionalidad 3: mostrar las preventas abiertas (vigentes).
+    Entradas disponibles y tiempo restante salen de Redis; el nombre del evento
+    y la categoría, del catálogo en MongoDB.
+    """
+    preventas = listar_preventas_abiertas()
     return render_template("preventas/activas.html", preventas=preventas)

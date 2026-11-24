@@ -9,9 +9,12 @@ def create_app():
     # Inicializar conectores de MongoDB y Redis
     Database.init_app(app)
 
-    # Registrar el Blueprint del módulo de eventos
+    # Registrar los módulos (blueprints)
     from app.blue_prints.eventos.routes import eventos_bp
     app.register_blueprint(eventos_bp, url_prefix="/eventos")
+
+    from app.blue_prints.preventas.routes import preventas_bp
+    app.register_blueprint(preventas_bp, url_prefix="/preventas")
 
     # Ruta raíz principal del sitio web
     @app.route("/")
