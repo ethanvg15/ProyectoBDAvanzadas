@@ -16,6 +16,9 @@ def create_app():
     from app.blue_prints.preventas.routes import preventas_bp
     app.register_blueprint(preventas_bp, url_prefix="/preventas")
 
+    from app.blue_prints.entradas.routes import entradas_bp
+    app.register_blueprint(entradas_bp, url_prefix="/entradas")
+
     # Ruta raíz principal del sitio web
     @app.route("/")
     def root():
